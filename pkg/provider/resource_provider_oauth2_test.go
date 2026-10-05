@@ -1,11 +1,16 @@
 package provider
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-sdk/helper/acctest"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/resource"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
+	"github.com/hashicorp/terraform-plugin-sdk/v2/terraform"
 )
 
 func TestAccResourceProviderOAuth2(t *testing.T) {
@@ -142,4 +147,89 @@ resource "authentik_application" "name" {
   protocol_provider = authentik_provider_oauth2.name.id
 }
 `, name, appName)
+}
+
+func TestAccResourceProviderOAuth2_WithSecretWriteOnly(t *testing.T) {
+	rName := acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
+	resource.UnitTest(t, resource.TestCase{
+		PreCheck:          func() { testAccPreCheck(t) },
+		ProviderFactories: providerFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccResourceProviderOAuth2WithSecretWriteOnly(rName, "first", 1),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("authentik_provider_oauth2.name", "client_secret", ""),
+					resource.TestCheckNoResourceAttr("authentik_provider_oauth2.name", "client_secret_wo"),
+					resource.TestCheckResourceAttr("authentik_provider_oauth2.name", "client_secret_wo_version", "1"),
+					testAccCheckProviderOAuth2ClientSecret("authentik_provider_oauth2.name", "first"),
+				),
+			},
+			{
+				// A new value without a new version is not sent.
+				Config: testAccResourceProviderOAuth2WithSecretWriteOnly(rName, "second", 1),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("authentik_provider_oauth2.name", "client_secret", ""),
+					testAccCheckProviderOAuth2ClientSecret("authentik_provider_oauth2.name", "first"),
+				),
+			},
+			{
+				Config: testAccResourceProviderOAuth2WithSecretWriteOnly(rName, "second", 2),
+				Check: resource.ComposeTestCheckFunc(
+					resource.TestCheckResourceAttr("authentik_provider_oauth2.name", "client_secret", ""),
+					resource.TestCheckResourceAttr("authentik_provider_oauth2.name", "client_secret_wo_version", "2"),
+					testAccCheckProviderOAuth2ClientSecret("authentik_provider_oauth2.name", "second"),
+				),
+			},
+		},
+	})
+}
+
+// Reads the secret authentik actually holds, since state no longer has it.
+func testAccCheckProviderOAuth2ClientSecret(name string, want string) resource.TestCheckFunc {
+	return func(s *terraform.State) error {
+		rs, ok := s.RootModule().Resources[name]
+		if !ok {
+			return fmt.Errorf("not found: %s", name)
+		}
+		id, err := strconv.ParseInt(rs.Primary.ID, 10, 32)
+		if err != nil {
+			return err
+		}
+		p := Provider("test", false)
+		ac, diags := p.ConfigureContextFunc(context.Background(), schema.TestResourceDataRaw(&testing.T{}, p.Schema, map[string]any{
+			"url":   os.Getenv("AUTHENTIK_URL"),
+			"token": os.Getenv("AUTHENTIK_TOKEN"),
+		}))
+		if diags.HasError() {
+			return fmt.Errorf("configuring client: %v", diags)
+		}
+		res, _, err := ac.(*APIClient).client.ProvidersAPI.ProvidersOauth2Retrieve(context.Background(), int32(id)).Execute()
+		if err != nil {
+			return err
+		}
+		if res.GetClientSecret() != want {
+			return fmt.Errorf("client secret in authentik is %q, want %q", res.GetClientSecret(), want)
+		}
+		return nil
+	}
+}
+
+func testAccResourceProviderOAuth2WithSecretWriteOnly(name string, secret string, version int) string {
+	return fmt.Sprintf(`
+data "authentik_flow" "default-authorization-flow" {
+  slug = "default-provider-authorization-implicit-consent"
+}
+data "authentik_flow" "default-provider-invalidation-flow" {
+  slug = "default-provider-invalidation-flow"
+}
+
+resource "authentik_provider_oauth2" "name" {
+  name                     = "%[1]s"
+  client_id                = "%[1]s"
+  client_secret_wo         = "%[2]s"
+  client_secret_wo_version = %[3]d
+  authorization_flow       = data.authentik_flow.default-authorization-flow.id
+  invalidation_flow        = data.authentik_flow.default-provider-invalidation-flow.id
+}
+`, name, secret, version)
 }

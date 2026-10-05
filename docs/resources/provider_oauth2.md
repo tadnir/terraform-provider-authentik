@@ -44,11 +44,15 @@ resource "authentik_application" "name" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `access_code_validity` (String) Format: hours=1;minutes=2;seconds=3. Defaults to `minutes=1`.
 - `access_token_validity` (String) Format: hours=1;minutes=2;seconds=3. Defaults to `minutes=10`.
 - `allowed_redirect_uris` (List of Map of String)
 - `authentication_flow` (String)
-- `client_secret` (String, Sensitive) Generated.
+- `client_secret` (String, Sensitive) The client secret, stored in state. Use `client_secret_wo` to keep it out of state. Generated.
+- `client_secret_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only client secret, never stored in state or plan. Requires Terraform 1.11 or later. Only sent to authentik on create and when `client_secret_wo_version` changes. When set, `client_secret` is left empty in state.
+- `client_secret_wo_version` (Number) Change this value to send `client_secret_wo` to authentik again, for example after rotating the secret.
 - `client_type` (String) Allowed values:
   - `confidential`
   - `public`

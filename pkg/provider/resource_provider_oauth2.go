@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	api "goauthentik.io/api/v3"
@@ -66,10 +67,27 @@ func resourceProviderOAuth2() *schema.Resource {
 				Required: true,
 			},
 			"client_secret": {
-				Type:      schema.TypeString,
-				Optional:  true,
-				Sensitive: true,
-				Computed:  true,
+				Type:          schema.TypeString,
+				Optional:      true,
+				Sensitive:     true,
+				Computed:      true,
+				ConflictsWith: []string{"client_secret_wo"},
+				Description:   "The client secret, stored in state. Use `client_secret_wo` to keep it out of state.",
+			},
+			"client_secret_wo": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Sensitive:     true,
+				WriteOnly:     true,
+				ConflictsWith: []string{"client_secret"},
+				RequiredWith:  []string{"client_secret_wo_version"},
+				Description:   "Write-only client secret, never stored in state or plan. Requires Terraform 1.11 or later. Only sent to authentik on create and when `client_secret_wo_version` changes. When set, `client_secret` is left empty in state.",
+			},
+			"client_secret_wo_version": {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				RequiredWith: []string{"client_secret_wo"},
+				Description:  "Change this value to send `client_secret_wo` to authentik again, for example after rotating the secret.",
 			},
 			"access_code_validity": {
 				Type:             schema.TypeString,
@@ -211,6 +229,17 @@ func resourceProviderOAuth2SchemaToProvider(d *schema.ResourceData) *api.OAuth2P
 	return &r
 }
 
+// oauth2ClientSecretWriteOnly returns client_secret_wo from the configuration.
+// Write-only values are never in state, so they can only be read from the raw
+// configuration, and only during create and update.
+func oauth2ClientSecretWriteOnly(d *schema.ResourceData) (string, bool) {
+	v, diags := d.GetRawConfigAt(cty.GetAttrPath("client_secret_wo"))
+	if diags.HasError() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
+		return "", false
+	}
+	return v.AsString(), true
+}
+
 func redirectURITypeFromMap(rd map[string]any) *api.RedirectURITypeEnum {
 	v, ok := rd["redirect_uri_type"].(string)
 	if !ok || v == "" {
@@ -289,6 +318,9 @@ func resourceProviderOAuth2Create(ctx context.Context, d *schema.ResourceData, m
 	c := m.(*APIClient)
 
 	r := resourceProviderOAuth2SchemaToProvider(d)
+	if secret, ok := oauth2ClientSecretWriteOnly(d); ok {
+		r.ClientSecret = &secret
+	}
 
 	res, hr, err := c.client.ProvidersAPI.ProvidersOauth2Create(ctx).OAuth2ProviderRequest(*r).Execute()
 	if err != nil {
@@ -316,7 +348,12 @@ func resourceProviderOAuth2Read(ctx context.Context, d *schema.ResourceData, m a
 	helpers.SetWrapper(d, "authorization_flow", res.AuthorizationFlow)
 	helpers.SetWrapper(d, "invalidation_flow", res.InvalidationFlow)
 	helpers.SetWrapper(d, "client_id", res.ClientId)
-	helpers.SetWrapper(d, "client_secret", res.ClientSecret)
+	if _, ok := d.GetOk("client_secret_wo_version"); ok {
+		// The secret came from client_secret_wo; keep it out of state.
+		helpers.SetWrapper(d, "client_secret", "")
+	} else {
+		helpers.SetWrapper(d, "client_secret", res.ClientSecret)
+	}
 	helpers.SetWrapper(d, "client_type", res.ClientType)
 	helpers.SetWrapper(d, "grant_types", res.GrantTypes)
 	helpers.SetWrapper(d, "include_claims_in_id_token", res.IncludeClaimsInIdToken)
@@ -358,6 +395,11 @@ func resourceProviderOAuth2Update(ctx context.Context, d *schema.ResourceData, m
 		return diag.FromErr(err)
 	}
 	app := resourceProviderOAuth2SchemaToProvider(d)
+	if d.HasChange("client_secret_wo_version") {
+		if secret, ok := oauth2ClientSecretWriteOnly(d); ok {
+			app.ClientSecret = &secret
+		}
+	}
 
 	res, hr, err := c.client.ProvidersAPI.ProvidersOauth2Update(ctx, int32(id)).OAuth2ProviderRequest(*app).Execute()
 	if err != nil {
