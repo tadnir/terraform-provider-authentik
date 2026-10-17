@@ -77,6 +77,7 @@ func Provider(version string, testing bool) *schema.Provider {
 			"authentik_blueprint":                                  tr(resourceBlueprintInstance),
 			"authentik_brand":                                      tr(resourceBrand),
 			"authentik_certificate_key_pair":                       tr(resourceCertificateKeyPair),
+			"authentik_certificate_key_pair_generated":             tr(resourceCertificateKeyPairGenerated),
 			"authentik_endpoints_connector_agent":                  tr(resourceEndpointsConnectorAgent),
 			"authentik_endpoints_connector_agent_enrollment_token": tr(resourceEndpointsEnrollmentToken),
 			"authentik_endpoints_device_access_group":              tr(resourceEndpointsDeviceAccessGroup),
