@@ -41,6 +41,8 @@ resource "authentik_provider_scim" "name" {
 
 ### Optional
 
+> **NOTE**: [Write-only arguments](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments) are supported in Terraform 1.11 and later.
+
 - `auth_mode` (String) Allowed values:
   - `token`
   - `oauth`
@@ -65,7 +67,9 @@ resource "authentik_provider_scim" "name" {
 - `service_provider_config_cache_timeout` (String) Format: hours=1;minutes=2;seconds=3. Defaults to `hours=1`.
 - `sync_page_size` (Number) Defaults to `100`.
 - `sync_page_timeout` (String) Format: hours=1;minutes=2;seconds=3. Defaults to `minutes=30`.
-- `token` (String, Sensitive)
+- `token` (String, Sensitive) The token, stored in state. Use `token_wo` to keep it out of state.
+- `token_wo` (String, Sensitive, [Write-only](https://developer.hashicorp.com/terraform/language/resources/ephemeral#write-only-arguments)) Write-only token, never stored in state or plan. Requires Terraform 1.11 or later. Only sent to authentik on create and when `token_wo_version` changes.
+- `token_wo_version` (Number) Change this value to send `token_wo` to authentik again, for example after rotating the token.
 
 ### Read-Only
 

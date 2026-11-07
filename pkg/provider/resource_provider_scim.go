@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/hashicorp/go-cty/cty"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/diag"
 	"github.com/hashicorp/terraform-plugin-sdk/v2/helper/schema"
 	api "goauthentik.io/api/v3"
@@ -35,9 +36,26 @@ func resourceProviderSCIM() *schema.Resource {
 				Required: true,
 			},
 			"token": {
-				Type:      schema.TypeString,
-				Sensitive: true,
-				Optional:  true,
+				Type:          schema.TypeString,
+				Sensitive:     true,
+				Optional:      true,
+				ConflictsWith: []string{"token_wo"},
+				Description:   "The token, stored in state. Use `token_wo` to keep it out of state.",
+			},
+			"token_wo": {
+				Type:          schema.TypeString,
+				Optional:      true,
+				Sensitive:     true,
+				WriteOnly:     true,
+				ConflictsWith: []string{"token"},
+				RequiredWith:  []string{"token_wo_version"},
+				Description:   "Write-only token, never stored in state or plan. Requires Terraform 1.11 or later. Only sent to authentik on create and when `token_wo_version` changes.",
+			},
+			"token_wo_version": {
+				Type:         schema.TypeInt,
+				Optional:     true,
+				RequiredWith: []string{"token_wo"},
+				Description:  "Change this value to send `token_wo` to authentik again, for example after rotating the token.",
 			},
 			"auth_mode": {
 				Type:             schema.TypeString,
@@ -137,12 +155,26 @@ func resourceProviderSCIMSchemaToProvider(d *schema.ResourceData) (*api.SCIMProv
 	return &r, err
 }
 
+// scimTokenWriteOnly returns token_wo from the configuration. Write-only values
+// are never in state, so they can only be read from the raw configuration, and
+// only during create and update.
+func scimTokenWriteOnly(d *schema.ResourceData) (string, bool) {
+	v, diags := d.GetRawConfigAt(cty.GetAttrPath("token_wo"))
+	if diags.HasError() || v.IsNull() || !v.IsKnown() || !v.Type().Equals(cty.String) {
+		return "", false
+	}
+	return v.AsString(), true
+}
+
 func resourceProviderSCIMCreate(ctx context.Context, d *schema.ResourceData, m any) diag.Diagnostics {
 	c := m.(*APIClient)
 
 	r, diags := resourceProviderSCIMSchemaToProvider(d)
 	if diags != nil {
 		return diags
+	}
+	if token, ok := scimTokenWriteOnly(d); ok {
+		r.Token = &token
 	}
 
 	res, hr, err := c.client.ProvidersAPI.ProvidersScimCreate(ctx).SCIMProviderRequest(*r).Execute()
@@ -199,6 +231,12 @@ func resourceProviderSCIMUpdate(ctx context.Context, d *schema.ResourceData, m a
 	app, diags := resourceProviderSCIMSchemaToProvider(d)
 	if diags != nil {
 		return diags
+	}
+	// authentik keeps the stored token when the request leaves it out.
+	if d.HasChange("token_wo_version") {
+		if token, ok := scimTokenWriteOnly(d); ok {
+			app.Token = &token
+		}
 	}
 
 	res, hr, err := c.client.ProvidersAPI.ProvidersScimUpdate(ctx, int32(id)).SCIMProviderRequest(*app).Execute()
