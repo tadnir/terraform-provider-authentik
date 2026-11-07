@@ -16,7 +16,7 @@ import (
 func TestAccResourceProviderOAuth2(t *testing.T) {
 	rName := acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
 	appName := acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
-	resource.UnitTest(t, resource.TestCase{
+	resource.Test(t, resource.TestCase{
 		PreCheck:          func() { testAccPreCheck(t) },
 		ProviderFactories: providerFactories,
 		Steps: []resource.TestStep{
@@ -49,7 +49,7 @@ func TestAccResourceProviderOAuth2(t *testing.T) {
 func TestAccResourceProviderOAuth2_WithSecret(t *testing.T) {
 	rName := acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
 	appName := acctest.RandStringFromCharSet(10, acctest.CharSetAlphaNum)
-	resource.UnitTest(t, resource.TestCase{
+	resource.Test(t, resource.TestCase{
 		PreCheck:          func() { testAccPreCheck(t) },
 		ProviderFactories: providerFactories,
 		Steps: []resource.TestStep{
